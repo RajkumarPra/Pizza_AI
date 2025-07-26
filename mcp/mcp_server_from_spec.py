@@ -165,7 +165,7 @@ def process_order(message: str, context: dict) -> dict:
         }
 
 def track_order(message: str, context: dict) -> dict:
-    """Track pizza order"""
+    """Track pizza order - prioritize most recent order"""
     user_email = context.get("user_email")
     user_name = context.get("user_name", "")
     
@@ -179,6 +179,15 @@ def track_order(message: str, context: dict) -> dict:
         if user_orders:
             user_orders.sort(key=lambda x: x[1].get("timestamp", ""), reverse=True)
             order_id, order_data = user_orders[0]
+            
+            # Generate response focusing on latest order
+            latest_order_msg = gemini_chat.generate_contextual_response(
+                "latest order status update",
+                {"user_name": user_name},
+                order_id=order_id,
+                status=order_data.get('status', 'placed'),
+                items=order_data.get('items', [])
+            )
         else:
             no_orders_msg = gemini_chat.generate_contextual_response(
                 "no orders found - suggest new order", 
@@ -202,9 +211,9 @@ def track_order(message: str, context: dict) -> dict:
         # Generate status progression data
         status_progression = get_order_status_progression(order_data.get('status', 'placed'))
         
-        # Use Gemini for tracking response
+        # Use Gemini for tracking response - emphasize latest order
         tracking_prompt = f"""
-        Generate a tracking update message for Pizza Planet order.
+        Generate a tracking update message for Pizza Planet's LATEST ORDER.
         
         Order details:
         - Order ID: {order_id}
@@ -216,26 +225,32 @@ def track_order(message: str, context: dict) -> dict:
         Status progression: {status_progression}
         
         Create a response that:
-        - Updates on current status
-        - Mentions ETA
-        - Shows excitement about the order
+        - Emphasizes this is their LATEST order
+        - Updates on current status with excitement
+        - Mentions ETA prominently
         - Uses user's name if provided
         - Includes appropriate emojis
+        - Keeps focus on this ONE order (not historical orders)
         
-        Keep it concise but informative.
+        Example: "Here's your latest order update! Order #{order_id} is [status]..."
         """
         
         try:
             tracking_msg = gemini_chat.model.generate_content(tracking_prompt).text.strip()
         except:
-            # Fallback tracking message
+            # Fallback tracking message - emphasize latest
             status_emoji = {"placed": "✅", "preparing": "⏲️", "cooking": "🔥", "ready": "📦", "delivered": "🚚"}.get(order_data.get('status'), "⏲️")
-            tracking_msg = f"{status_emoji} Order #{order_id} is {order_data.get('status', 'being processed')}! ETA: {eta_text} 🍕"
+            tracking_msg = f"📋 Here's your latest order update! {status_emoji} Order #{order_id} is {order_data.get('status', 'being processed')}! ETA: {eta_text} 🍕"
         
         return {
             "status": "success",
             "message": tracking_msg,
-            "order_data": {**order_data, "eta": eta_text, "status_progression": status_progression},
+            "order_data": {
+                **order_data, 
+                "eta": eta_text, 
+                "status_progression": status_progression,
+                "is_latest": True  # Flag to indicate this is the most recent order
+            },
             "action": "show_tracking"
         }
     else:

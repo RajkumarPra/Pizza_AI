@@ -221,27 +221,27 @@ const Index = () => {
         const orderData = await response.json();
         console.log('📡 MCP Order Response:', orderData);
         
-        const newOrder: Order = {
+    const newOrder: Order = {
           id: orderData.order_id,
-          items: [{ ...item, quantity: 1 }],
-          status: 'placed',
+      items: [{ ...item, quantity: 1 }],
+      status: 'placed',
           total: orderData.total_price,
           estimatedTime: orderData.estimated_time || "being calculated", // Use dynamic ETA
-          timestamp: new Date()
-        };
+      timestamp: new Date()
+    };
 
-        setOrders(prev => [...prev, newOrder]);
-        setRecentOrder(newOrder);
-        setCurrentOrder([]); // Clear any existing cart
-        setCurrentView('track');
+    setOrders(prev => [...prev, newOrder]);
+    setRecentOrder(newOrder);
+    setCurrentOrder([]); // Clear any existing cart
+    setCurrentView('track');
 
-        toast({
-          title: "Order placed instantly! 🎉",
-          description: `${item.name} (${item.size}) - $${item.price.toFixed(2)}`,
-          duration: 4000,
-        });
+    toast({
+      title: "Order placed instantly! 🎉",
+      description: `${item.name} (${item.size}) - $${item.price.toFixed(2)}`,
+      duration: 4000,
+    });
 
-        return newOrder;
+    return newOrder;
       } else {
         const errorData = await response.json();
         throw new Error(errorData.detail || 'Failed to place order');
@@ -306,7 +306,7 @@ const Index = () => {
       if (response.ok) {
         const data = await response.json();
         console.log('📡 MCP Chat Response:', data);
-        
+
         // Add bot response with suggested items if available
         addMessage(data.response, 'bot', data.intent, data.suggested_items);
 
@@ -322,8 +322,8 @@ const Index = () => {
           case 'show_tracking':
             // If order data is provided in context, navigate directly
             if (data.context?.order_data) {
-              setCurrentView('track');
-              setAwaitingOrderNumber(false);
+      setCurrentView('track');
+      setAwaitingOrderNumber(false);
             } else if (data.context?.agent_used === 'scheduler_agent') {
               // If scheduler agent was used but no order found, stay in chat
               setAwaitingOrderNumber(false);
@@ -387,9 +387,9 @@ const Index = () => {
             break;
             
           case 'show_healthy_options':
-            setCurrentView('menu');
+        setCurrentView('menu');
             setMenuCategory('veg'); // Show vegetarian options for health queries
-            break;
+        break;
         }
 
         // Handle tracking with automatic order ID detection
@@ -441,28 +441,28 @@ const Index = () => {
 
       if (response.ok) {
         const orderData = await response.json();
-        
-        const total = currentOrder.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-        const newOrder: Order = {
+
+    const total = currentOrder.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    const newOrder: Order = {
           id: orderData.order_id,
-          items: currentOrder,
-          status: 'placed',
-          total,
+      items: currentOrder,
+      status: 'placed',
+      total,
           estimatedTime: orderData.estimated_time || "being calculated", // Use dynamic ETA
-          timestamp: new Date()
-        };
+      timestamp: new Date()
+    };
 
-        setOrders(prev => [...prev, newOrder]);
-        setRecentOrder(newOrder);
-        setCurrentOrder([]);
-        setCurrentView('track');
+    setOrders(prev => [...prev, newOrder]);
+    setRecentOrder(newOrder);
+    setCurrentOrder([]);
+    setCurrentView('track');
 
-        toast({
-          title: "Order placed successfully!",
-          description: `Order #${newOrder.id} - Total: $${total.toFixed(2)}`,
-        });
+    toast({
+      title: "Order placed successfully!",
+      description: `Order #${newOrder.id} - Total: $${total.toFixed(2)}`,
+    });
 
-        addMessage(`Perfect! Your order has been placed. Order #${newOrder.id} for $${total.toFixed(2)}. I'll track it for you!`, 'bot');
+    addMessage(`Perfect! Your order has been placed. Order #${newOrder.id} for $${total.toFixed(2)}. I'll track it for you!`, 'bot');
       } else {
         const errorData = await response.json();
         throw new Error(errorData.detail || 'Failed to place order');
@@ -537,11 +537,11 @@ const Index = () => {
       
       case 'track':
         return (
-          <OrderTracking 
+                <OrderTracking
             orders={orders}
             userEmail={userEmail}
             userName={userName}
-          />
+                  />
         );
       
       case 'schedule':

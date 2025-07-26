@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Clock, CheckCircle, Truck, Pizza, User, History, Package } from 'lucide-react';
+import { Clock, CheckCircle, Truck, Pizza, User, History, Package, ChevronDown, ChevronUp } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
 export type OrderStatus = 'placed' | 'preparing' | 'cooking' | 'ready' | 'delivered';
 
@@ -37,6 +38,7 @@ const API_BASE = 'http://localhost:8001/api';
 export const OrderTracking = ({ orders, userEmail, userName, onOrderSelect }: OrderTrackingProps) => {
   const [userOrderHistory, setUserOrderHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
   // Load user-specific order history
   useEffect(() => {
@@ -61,6 +63,17 @@ export const OrderTracking = ({ orders, userEmail, userName, onOrderSelect }: Or
       setLoading(false);
     }
   };
+
+  // Combine and sort all orders by timestamp (most recent first)
+  const allOrders = [...orders, ...userOrderHistory].sort((a, b) => {
+    const dateA = new Date(a.timestamp || a.created_at || 0);
+    const dateB = new Date(b.timestamp || b.created_at || 0);
+    return dateB.getTime() - dateA.getTime();
+  });
+
+  // Separate latest order from history
+  const latestOrder = allOrders[0];
+  const orderHistory = allOrders.slice(1);
 
   const getStatusIcon = (status: OrderStatus) => {
     switch (status) {
@@ -99,7 +112,7 @@ export const OrderTracking = ({ orders, userEmail, userName, onOrderSelect }: Or
   const StatusProgressBar = ({ statusProgression }: { statusProgression?: any }) => {
     if (!statusProgression) return null;
 
-    return (
+  return (
       <div className="space-y-3">
         <div className="flex justify-between items-center mb-2">
           <span className="text-sm font-medium text-gray-700">Order Progress</span>
@@ -165,16 +178,16 @@ export const OrderTracking = ({ orders, userEmail, userName, onOrderSelect }: Or
           </Badge>
         </div>
       </CardHeader>
-      
+
       <CardContent className="space-y-4">
-        {/* Order Items */}
-        <div className="space-y-2">
+          {/* Order Items */}
+            <div className="space-y-2">
           {order.items?.map((item: any, index: number) => (
             <div key={index} className="flex justify-between items-center text-sm">
               <span>{item.name} ({item.size})</span>
               <span className="font-medium">${item.price?.toFixed(2)}</span>
-            </div>
-          ))}
+                  </div>
+                ))}
           <div className="border-t pt-2 flex justify-between items-center font-bold">
             <span>Total</span>
             <span>${order.total_price?.toFixed(2)}</span>
@@ -193,9 +206,9 @@ export const OrderTracking = ({ orders, userEmail, userName, onOrderSelect }: Or
             <div className="text-sm">
               <span className="text-blue-700 font-medium">ETA: </span>
               <span className="text-blue-600">{order.eta}</span>
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
         {/* Status Message */}
         <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded-lg">
@@ -205,141 +218,114 @@ export const OrderTracking = ({ orders, userEmail, userName, onOrderSelect }: Or
     </Card>
   );
 
-  // Separate current and completed orders
-  const currentOrders = userOrderHistory.filter(order => 
-    ['placed', 'preparing', 'cooking', 'ready'].includes(order.status)
-  );
-  
-  const completedOrders = userOrderHistory.filter(order => 
-    ['delivered', 'completed'].includes(order.status)
-  );
-
-  // If no orders and no user order history, show welcome message
-  if (orders.length === 0 && userOrderHistory.length === 0 && !loading) {
+  // If no orders at all, show welcome message
+  if (allOrders.length === 0 && !loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-orange-50 to-red-50 flex items-center justify-center p-4">
-        <Card className="w-full max-w-md text-center">
-          <CardHeader>
-            <div className="mx-auto mb-4 p-3 bg-orange-100 rounded-full w-fit">
-              <Pizza className="h-12 w-12 text-orange-500" />
-            </div>
-            <CardTitle className="text-xl text-orange-600">
-              Welcome{userName ? `, ${userName}` : ''}!
-            </CardTitle>
-            <CardDescription className="text-base mt-2">
-              You don't have any ongoing orders yet. Ready to try one of our delicious specials? 🍕
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button 
-              onClick={() => window.location.hash = 'menu'}
-              className="w-full bg-orange-500 hover:bg-orange-600"
-            >
-              Browse Our Menu
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
+      <Card className="text-center py-12">
+        <CardContent>
+          <Pizza className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+          <CardTitle className="mb-2">No Orders Yet</CardTitle>
+          <CardDescription className="mb-4">
+            {userName ? `${userName}, you haven't placed any orders yet.` : "You haven't placed any orders yet."}
+          </CardDescription>
+          <p className="text-sm text-muted-foreground mb-4">
+            When you place an order, you'll be able to track its progress here!
+          </p>
+          <Button 
+            onClick={() => window.location.hash = 'menu'}
+            className="bg-gradient-primary hover:opacity-90"
+          >
+            Browse Our Menu
+          </Button>
+        </CardContent>
+      </Card>
     );
   }
 
-  // If no user email, show general tracking
-  if (!userEmail) {
-    return (
-      <div className="space-y-6">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold mb-2">Order Tracking</h2>
-          <p className="text-muted-foreground">Track your pizza orders in real-time</p>
-        </div>
-        
-        {orders.length === 0 ? (
-          <Card>
-            <CardContent className="pt-6 text-center">
-              <Pizza className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
-              <h3 className="text-lg font-semibold mb-2">No orders to track</h3>
-              <p className="text-muted-foreground">Place an order to start tracking!</p>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="space-y-4">
-            {orders.map((order) => (
-              <OrderCard key={order.id} order={order} />
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // Show personalized tracking for logged-in users
   return (
     <div className="space-y-6">
-      <div className="text-center">
-        <h2 className="text-2xl font-bold mb-2 flex items-center justify-center gap-2">
-          <User className="h-6 w-6" />
-          {userName ? `${userName}'s Orders` : 'Your Orders'}
-        </h2>
-        <p className="text-muted-foreground">Track and manage your pizza orders</p>
+      {/* Header */}
+      <div className="flex items-center gap-3">
+        <div className="w-8 h-8 rounded-full bg-gradient-primary flex items-center justify-center">
+          <Truck className="h-4 w-4 text-primary-foreground" />
+        </div>
+        <div>
+          <h2 className="text-xl font-semibold">Order Tracking</h2>
+          <p className="text-sm text-muted-foreground">
+            {userName ? `${userName}'s orders` : 'Track your pizza orders'}
+          </p>
+        </div>
       </div>
 
-      {/* No orders message */}
-      {userOrderHistory.length === 0 && (
-        <Card className="border-dashed border-2">
-          <CardContent className="pt-6 text-center">
-            <Pizza className="h-16 w-16 mx-auto mb-4 text-orange-500" />
-            <h3 className="text-lg font-semibold mb-2">
-              Welcome{userName ? `, ${userName}` : ''}! 🍕
-            </h3>
-            <p className="text-muted-foreground mb-4">
-              Looks like you haven't placed an order yet. Let us know if you're craving something!
-            </p>
-            <Button 
-              className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600"
-              onClick={() => window.location.hash = '#menu'}
-            >
-              View Menu
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Current Orders */}
-      {orders.length > 0 && (
-        <div className="space-y-6">
-          <div>
-            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-              <Pizza className="h-5 w-5 text-orange-500" />
-              Your Current Order is Being Prepared!
-            </h2>
-            <div className="space-y-4">
-              {orders.map((order) => (
-                <OrderCard key={order.id} order={order} isActive={true} />
-              ))}
+      {/* Latest Order - Prominently Displayed */}
+      {latestOrder && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="flex items-center gap-2 px-3 py-1 bg-blue-100 rounded-full">
+              <Clock className="h-4 w-4 text-blue-600" />
+              <span className="text-sm font-semibold text-blue-700">Latest Order</span>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* User Order History */}
-      {userOrderHistory.length > 0 && (
-        <div className="space-y-4">
-          <h3 className="text-lg font-semibold flex items-center gap-2">
-            <History className="h-5 w-5 text-gray-500" />
-            Order History
-          </h3>
-          <div className="space-y-4">
-            {userOrderHistory.map((order) => (
-              <OrderCard key={order.order_id} order={order} isActive={false} />
-            ))}
+          <div className="ring-2 ring-blue-200 rounded-lg">
+            <OrderCard 
+              order={{
+                ...latestOrder, 
+                id: latestOrder.order_id || latestOrder.id,
+                status: latestOrder.status || 'placed',
+                items: latestOrder.items || [],
+                total: latestOrder.total_price || latestOrder.total || 0,
+                estimatedTime: latestOrder.eta || latestOrder.estimatedTime || 25,
+                timestamp: new Date(latestOrder.timestamp || latestOrder.created_at || Date.now())
+              }} 
+              isActive={true} 
+            />
           </div>
         </div>
       )}
-      
+
+      {/* Order History - Collapsible */}
+      {orderHistory.length > 0 && (
+        <Collapsible open={isHistoryOpen} onOpenChange={setIsHistoryOpen}>
+          <CollapsibleTrigger asChild>
+            <Button variant="outline" className="w-full justify-between">
+              <div className="flex items-center gap-2">
+                <History className="h-4 w-4 text-gray-500" />
+                <span>Order History ({orderHistory.length})</span>
+              </div>
+              {isHistoryOpen ? (
+                <ChevronUp className="h-4 w-4" />
+              ) : (
+                <ChevronDown className="h-4 w-4" />
+              )}
+            </Button>
+          </CollapsibleTrigger>
+          
+          <CollapsibleContent className="space-y-4 mt-4">
+            {orderHistory.map((order, index) => (
+              <div key={order.order_id || order.id || index} className="opacity-80">
+                <OrderCard 
+                  order={{
+                    ...order, 
+                    id: order.order_id || order.id,
+                    status: order.status || 'delivered',
+                    items: order.items || [],
+                    total: order.total_price || order.total || 0,
+                    estimatedTime: order.eta || order.estimatedTime || 0,
+                    timestamp: new Date(order.timestamp || order.created_at || Date.now())
+                  }} 
+                />
+              </div>
+            ))}
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+
+      {/* Loading State */}
       {loading && (
         <Card>
-          <CardContent className="pt-6 text-center">
-            <Pizza className="h-8 w-8 mx-auto mb-2 text-orange-500 animate-spin" />
-            <p className="text-muted-foreground">Loading your orders...</p>
+          <CardContent className="py-6 text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2"></div>
+            <p className="text-sm text-muted-foreground">Loading order history...</p>
           </CardContent>
         </Card>
       )}

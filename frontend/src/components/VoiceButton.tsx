@@ -9,6 +9,7 @@ declare global {
   interface Window {
     SpeechRecognition: any;
     webkitSpeechRecognition: any;
+    speechTimeout: NodeJS.Timeout | null;
   }
 }
 
@@ -73,7 +74,7 @@ export const VoiceButton = ({
     
     if (supported) {
       console.log('✅ Speech Recognition is supported');
-      
+
       // Check if running on HTTPS or localhost (required for speech recognition)
       const isSecure = location.protocol === 'https:' || location.hostname === 'localhost';
       if (!isSecure) {
@@ -89,51 +90,70 @@ export const VoiceButton = ({
       }
 
       try {
-        const recognition = new SpeechRecognition();
-        recognition.continuous = false;
+      const recognition = new SpeechRecognition();
+        // Improved settings for better accuracy and reduced latency
+        recognition.continuous = true; // Enable continuous listening
         recognition.interimResults = true;
         recognition.lang = 'en-US';
-        recognition.maxAlternatives = 1;
+        recognition.maxAlternatives = 3; // Increase alternatives for better accuracy
+        
+        // Add timing settings to prevent premature cutoff
+        if ('webkitSpeechRecognition' in window) {
+          // @ts-ignore - WebKit specific settings
+          recognition.webkitGrammars = null;
+          // @ts-ignore
+          recognition.webkitContinuous = true;
+        }
 
-        recognition.onstart = () => {
+      recognition.onstart = () => {
           console.log('🎤 Speech recognition started');
-          setIsListening(true);
+        setIsListening(true);
           handleSpeechStart();
           toast({
             title: "Listening...",
             description: "Speak now! I'm listening to your voice.",
-            duration: 2000
+            duration: 3000 // Increased duration
           });
-        };
+      };
 
-        recognition.onresult = (event) => {
+      recognition.onresult = (event) => {
           console.log('📝 Speech recognition result:', event);
-          let finalTranscript = '';
-          
-          for (let i = event.resultIndex; i < event.results.length; i++) {
-            const transcript = event.results[i][0].transcript;
+        let finalTranscript = '';
+        let interimTranscript = '';
+        
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
             const confidence = event.results[i][0].confidence;
             
-            if (event.results[i].isFinal) {
-              finalTranscript += transcript;
+          if (event.results[i].isFinal) {
+            finalTranscript += transcript;
               console.log(`✅ Final transcript: "${transcript}" (confidence: ${confidence})`);
-            }
+          } else {
+            interimTranscript += transcript;
+            console.log(`🔄 Interim transcript: "${transcript}"`);
           }
-          
-          if (finalTranscript.trim()) {
+        }
+        
+        // Only process final transcript and ensure minimum length
+        if (finalTranscript.trim() && finalTranscript.trim().length > 1) {
             console.log(`🎉 Sending voice input: "${finalTranscript}"`);
             handleVoiceInput(finalTranscript.trim());
-            recognition.stop();
-          }
-        };
+          recognition.stop();
+        }
+        
+        // Continue listening if we only have interim results
+        if (!finalTranscript && interimTranscript) {
+          console.log('🔄 Still listening for complete phrase...');
+        }
+      };
 
-        recognition.onend = () => {
+      recognition.onend = () => {
           console.log('🛑 Speech recognition ended');
-          setIsListening(false);
+        setIsListening(false);
           handleSpeechEnd();
-        };
+      };
 
-        recognition.onerror = (event) => {
+      recognition.onerror = (event) => {
           console.error('❌ Speech recognition error:', event.error);
           setIsListening(false);
           handleSpeechEnd();
@@ -143,9 +163,9 @@ export const VoiceButton = ({
           
           switch(event.error) {
             case 'no-speech':
-              errorMessage = 'No speech detected. Please speak louder or closer to the microphone.';
-              toastVariant = "default";
-              break;
+              // Don't show error for no-speech, just silently restart
+              console.log('🤫 No speech detected, stopping gracefully');
+              return; // Don't show toast for this
             case 'audio-capture':
               errorMessage = 'Microphone error. Please check if your microphone is connected and working.';
               break;
@@ -159,26 +179,44 @@ export const VoiceButton = ({
             case 'service-not-allowed':
               errorMessage = 'Speech recognition service not allowed. Please try again.';
               break;
+            case 'aborted':
+              // Don't show error for aborted (user clicked stop)
+              console.log('🛑 Speech recognition aborted by user');
+              return;
             default:
               errorMessage = `Speech recognition error: ${event.error}`;
           }
           
-          toast({
-            title: "Voice input error",
-            description: errorMessage,
-            variant: toastVariant
-          });
-        };
+          // Only show toast if we have an error message
+          if (errorMessage) {
+            toast({
+              title: "Voice input error",
+              description: errorMessage,
+              variant: toastVariant
+            });
+          }
+      };
 
-        recognition.onspeechstart = () => {
+      recognition.onspeechstart = () => {
           console.log('🗣️ Speech detected');
-        };
+          // Clear any existing timeout when speech starts
+          if (window.speechTimeout) {
+            clearTimeout(window.speechTimeout);
+          }
+      };
 
-        recognition.onspeechend = () => {
+      recognition.onspeechend = () => {
           console.log('🤫 Speech ended');
-        };
+          // Add a short delay before stopping to catch any final words
+          window.speechTimeout = setTimeout(() => {
+            if (recognition && isListening) {
+              console.log('⏰ Speech timeout reached, stopping recognition');
+              recognition.stop();
+            }
+          }, 1500); // Wait 1.5 seconds after speech ends
+      };
 
-        recognitionRef.current = recognition;
+      recognitionRef.current = recognition;
         
         // Test microphone permission on component mount
         testMicrophonePermission();
@@ -229,9 +267,9 @@ export const VoiceButton = ({
       stream.getTracks().forEach(track => track.stop());
       
       // Start speech recognition
-      recognitionRef.current.start();
+        recognitionRef.current.start();
       
-    } catch (error) {
+      } catch (error) {
       console.error('❌ Microphone permission denied:', error);
       setHasPermission(false);
       
