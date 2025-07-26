@@ -444,8 +444,6 @@ async def chat_endpoint(chat_request: ChatRequest):
     action = intent_data.get("action")
     category = intent_data.get("category")
     
-    print(f"🧠 Gemini Intent: {intent}, Action: {action}, Category: {category}")
-    
     # Route based on Gemini's analysis
     if intent == "confirm":
         result = confirm_order(chat_request.user_id, user_context)
@@ -458,7 +456,6 @@ async def chat_endpoint(chat_request: ChatRequest):
     
     elif intent == "order":
         result = process_order(message, user_context)
-        print(f"🔍 Order result: {result}")  # Debug logging
         return ChatResponse(
             response=result["message"],
             intent=intent,
@@ -541,13 +538,6 @@ async def chat_endpoint(chat_request: ChatRequest):
 @app.post("/api/order", response_model=OrderResponse)
 async def place_order_endpoint(order_request: OrderRequest):
     """Place pizza order directly"""
-    print(f"🔍 DEBUG: Received order request from frontend:")
-    print(f"  Items: {order_request.items}")
-    print(f"  Address: {order_request.address}")
-    print(f"  Phone: {order_request.phone}")
-    print(f"  User ID: {order_request.user_id}")
-    print(f"  Email: {order_request.email}")
-    
     order_id = create_order_id()
     validated_items = []
     total_price = 0

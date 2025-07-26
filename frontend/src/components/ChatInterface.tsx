@@ -29,7 +29,7 @@ const API_BASE = 'http://localhost:8001/api'; // MCP Server
 export const ChatInterface = ({ 
   messages, 
   onSendMessage, 
-  onVoiceInput, 
+  onVoiceInput,
   isProcessing,
   className 
 }: ChatInterfaceProps) => {
@@ -99,8 +99,8 @@ export const ChatInterface = ({
             <Badge variant="secondary" className="bg-green-100 text-green-700">
               Online
             </Badge>
-          </div>
         </div>
+      </div>
 
         {/* Messages */}
         <ScrollArea className="flex-1 pr-4 chat-scrollbar">
@@ -130,21 +130,21 @@ export const ChatInterface = ({
                           {item.description && (
                             <div className="opacity-60 mt-1">{item.description}</div>
                           )}
-                        </div>
+            </div>
                       ))}
-                    </div>
-                  )}
-                  
+          </div>
+        )}
+
                   <div className={`text-xs mt-2 opacity-60 ${
                     message.type === 'user' ? 'text-right' : 'text-left'
                   }`}>
                     {formatTime(message.timestamp)}
-                  </div>
-                </div>
               </div>
-            ))}
-            
-            {isProcessing && (
+            </div>
+          </div>
+        ))}
+        
+        {isProcessing && (
               <div className="flex justify-start">
                 <div className="bg-muted rounded-lg px-4 py-3 mr-4">
                   <div className="flex items-center space-x-2">
@@ -152,15 +152,15 @@ export const ChatInterface = ({
                       <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
                       <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
                       <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-                    </div>
+            </div>
                     <span className="text-sm text-muted-foreground">AI is thinking...</span>
-                  </div>
-                </div>
               </div>
-            )}
-            
-            <div ref={messagesEndRef} />
+            </div>
           </div>
+        )}
+        
+        <div ref={messagesEndRef} />
+      </div>
         </ScrollArea>
 
         {/* Input */}

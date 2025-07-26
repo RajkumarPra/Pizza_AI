@@ -57,7 +57,7 @@ export const MenuComponent = ({
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       {items.map((item) => (
         <Card key={item.id} className="group hover:shadow-lg transition-all duration-300 border-border/50">
-          <CardHeader className="pb-3">
+            <CardHeader className="pb-3">
             <div className="flex items-start justify-between gap-3">
               <div className="flex-1 min-w-0">
                 <CardTitle className="text-lg font-semibold group-hover:text-primary transition-colors truncate">
@@ -77,9 +77,9 @@ export const MenuComponent = ({
                 <div className="text-xl font-bold text-primary whitespace-nowrap">
                   ${item.price.toFixed(2)}
                 </div>
+                </div>
               </div>
-            </div>
-          </CardHeader>
+            </CardHeader>
           
           {item.description && (
             <CardContent className="pt-0 pb-3">
@@ -90,16 +90,16 @@ export const MenuComponent = ({
           )}
           
           <CardFooter className="pt-0">
-            <Button 
-              onClick={() => onAddToOrder(item)}
+              <Button 
+                onClick={() => onAddToOrder(item)}
               className="w-full bg-gradient-primary hover:opacity-90 transition-all duration-200 group-hover:scale-105"
               size="lg"
-            >
+              >
               <Plus className="h-4 w-4 mr-2" />
-              Add to Order
-            </Button>
-          </CardFooter>
-        </Card>
+                Add to Order
+              </Button>
+            </CardFooter>
+          </Card>
       ))}
     </div>
   );
@@ -136,7 +136,7 @@ export const MenuComponent = ({
         </h2>
         <p className="text-muted-foreground">Choose from our delicious pizza selection</p>
       </div>
-
+      
       <Tabs defaultValue="all" className="w-full">
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="all">All Pizzas ({menuItems.length})</TabsTrigger>
@@ -147,9 +147,9 @@ export const MenuComponent = ({
           <TabsTrigger value="non-veg">
             <Beef className="h-4 w-4 mr-1" />
             Non-Vegetarian ({nonVegItems.length})
-          </TabsTrigger>
+              </TabsTrigger>
         </TabsList>
-
+        
         <TabsContent value="all" className="mt-6">
           {renderMenuItems(menuItems)}
         </TabsContent>
@@ -172,7 +172,7 @@ export const MenuComponent = ({
             </div>
             {renderMenuItems(nonVegItems)}
           </div>
-        </TabsContent>
+          </TabsContent>
       </Tabs>
     </div>
   );
