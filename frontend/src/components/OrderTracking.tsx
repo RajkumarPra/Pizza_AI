@@ -39,6 +39,8 @@ export const OrderTracking = ({ orders, userEmail, userName, onOrderSelect }: Or
   const [userOrderHistory, setUserOrderHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [previousOrderStatuses, setPreviousOrderStatuses] = useState<{[key: string]: string}>({});
 
   // Load user-specific order history
   useEffect(() => {
@@ -52,10 +54,54 @@ export const OrderTracking = ({ orders, userEmail, userName, onOrderSelect }: Or
     
     setLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/user/${encodeURIComponent(userEmail)}/orders`);
-      if (response.ok) {
-        const data = await response.json();
-        setUserOrderHistory(data.all_orders || []);
+      // First get user-specific orders
+      const userResponse = await fetch(`${API_BASE}/user/${encodeURIComponent(userEmail)}/orders`);
+      if (userResponse.ok) {
+        const userData = await userResponse.json();
+        const userOrders = userData.all_orders || [];
+        
+        // Also get all orders with updated status
+        const statusResponse = await fetch(`${API_BASE}/orders/status-updates`);
+        if (statusResponse.ok) {
+          const statusData = await statusResponse.json();
+          const allUpdatedOrders = statusData.orders || [];
+          
+          // Merge user orders with updated status
+          const updatedUserOrders = userOrders.map((userOrder: any) => {
+            const updatedOrder = allUpdatedOrders.find((updated: any) => 
+              updated.order_id === userOrder.order_id || updated.id === userOrder.order_id
+            );
+            return updatedOrder || userOrder;
+          });
+          
+          // Check for status changes
+          updatedUserOrders.forEach((order: any) => {
+            const orderId = order.order_id || order.id;
+            const currentStatus = order.status;
+            const previousStatus = previousOrderStatuses[orderId];
+            
+            if (previousStatus && previousStatus !== currentStatus) {
+              // Status changed - show notification
+              console.log(`🔄 Order ${orderId} status changed from ${previousStatus} to ${currentStatus}`);
+              // You could add a toast notification here
+            }
+          });
+          
+          // Update previous statuses
+          const newStatuses: {[key: string]: string} = {};
+          updatedUserOrders.forEach((order: any) => {
+            const orderId = order.order_id || order.id;
+            newStatuses[orderId] = order.status;
+          });
+          setPreviousOrderStatuses(newStatuses);
+          
+          setUserOrderHistory(updatedUserOrders);
+          setLastUpdated(new Date());
+        } else {
+          // Fallback to just user orders
+          setUserOrderHistory(userOrders);
+          setLastUpdated(new Date());
+        }
       }
     } catch (error) {
       console.error('Failed to load user order history:', error);
@@ -81,6 +127,17 @@ export const OrderTracking = ({ orders, userEmail, userName, onOrderSelect }: Or
     const status = order.status || 'delivered';
     return ['ready', 'delivered'].includes(status);
   });
+
+  // Poll for status updates every 5 seconds for active orders
+  useEffect(() => {
+    if (!userEmail) return;
+
+    const interval = setInterval(() => {
+      loadUserOrderHistory();
+    }, 5000); // Poll every 5 seconds for more responsive updates
+
+    return () => clearInterval(interval);
+  }, [userEmail]);
 
   // Get the most recent active order for prominent display
   const latestActiveOrder = activeOrders[0];
@@ -179,8 +236,17 @@ export const OrderTracking = ({ orders, userEmail, userName, onOrderSelect }: Or
               Order #{order.order_id}
             </CardTitle>
             <CardDescription className="mt-1">
-              {new Date(order.timestamp).toLocaleDateString()} at{' '}
-              {new Date(order.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {(() => {
+                try {
+                  const date = new Date(order.timestamp);
+                  if (isNaN(date.getTime())) {
+                    return 'Order placed recently';
+                  }
+                  return `${date.toLocaleDateString()} at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+                } catch (error) {
+                  return 'Order placed recently';
+                }
+              })()}
             </CardDescription>
           </div>
           <Badge className={getStatusColor(order.status)}>
@@ -260,15 +326,34 @@ export const OrderTracking = ({ orders, userEmail, userName, onOrderSelect }: Or
           <div className="w-8 h-8 rounded-full bg-gradient-primary flex items-center justify-center">
             <Truck className="h-4 w-4 text-primary-foreground" />
           </div>
-          <div>
-            <h2 className="text-xl font-semibold">Order Tracking</h2>
-            <p className="text-sm text-muted-foreground">
-              {activeOrders.length > 0 
-                ? (userName ? `${userName}'s active orders` : 'Track your active pizza orders')
-                : (userName ? `${userName}'s order history` : 'Your order history')
-              }
-            </p>
+                  <div>
+          <h2 className="text-xl font-semibold">Order Tracking</h2>
+          <p className="text-sm text-muted-foreground">
+            {activeOrders.length > 0 
+              ? (userName ? `${userName}'s active orders` : 'Track your active pizza orders')
+              : (userName ? `${userName}'s order history` : 'Your order history')
+            }
+            {lastUpdated && (
+              <span className="block text-xs text-green-600 mt-1">
+                Last updated: {lastUpdated.toLocaleTimeString()}
+              </span>
+            )}
+          </p>
+        </div>
+        
+        {/* Manual refresh button */}
+        <Button 
+          onClick={loadUserOrderHistory}
+          disabled={loading}
+          variant="outline"
+          size="sm"
+          className="flex items-center gap-2"
+        >
+          <div className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`}>
+            {loading ? '⟳' : '↻'}
           </div>
+          {loading ? 'Updating...' : 'Refresh Now'}
+        </Button>
         </div>
         
 
@@ -305,6 +390,10 @@ export const OrderTracking = ({ orders, userEmail, userName, onOrderSelect }: Or
               <span className="text-sm font-semibold text-green-700">
                 Active Orders ({activeOrders.length})
               </span>
+            </div>
+            <div className="flex items-center gap-1 text-xs text-green-600">
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+              <span>Live Updates</span>
             </div>
           </div>
           

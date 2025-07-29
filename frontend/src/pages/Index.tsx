@@ -227,7 +227,7 @@ const Index = () => {
       status: 'placed',
           total: orderData.total_price,
           estimatedTime: orderData.estimated_time || "being calculated", // Use dynamic ETA
-      timestamp: new Date()
+      timestamp: new Date(orderData.timestamp || Date.now())
     };
 
     setOrders(prev => [...prev, newOrder]);
@@ -352,7 +352,7 @@ const Index = () => {
                 status: orderData.status,
                 total: orderData.total_price,
                 estimatedTime: orderData.estimated_time || "being calculated", // Use dynamic ETA
-                timestamp: new Date()
+                timestamp: new Date(orderData.timestamp || Date.now())
               };
               
               setOrders(prev => [...prev, newOrder]);
@@ -449,7 +449,7 @@ const Index = () => {
       status: 'placed',
       total,
           estimatedTime: orderData.estimated_time || "being calculated", // Use dynamic ETA
-      timestamp: new Date()
+      timestamp: new Date(orderData.timestamp || Date.now())
     };
 
     setOrders(prev => [...prev, newOrder]);

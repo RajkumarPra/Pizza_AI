@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 import uvicorn
 import uuid
+from datetime import datetime
 
 from utils.config import FLASH_MODEL
 from utils.menu import MENU, find_menu_item, suggest_similar_items, get_menu_by_category
@@ -38,6 +39,37 @@ if os.path.exists("frontend"):
 ORDERS = {}
 PENDING_CONFIRMATIONS = {}
 USERS = {}
+
+# Status progression simulation
+def simulate_order_progression():
+    """Simulate order status progression for demo purposes"""
+    import time
+    current_time = time.time()
+    
+    for order_id, order in ORDERS.items():
+        if order.get("status") in ["placed", "preparing", "cooking"]:
+            # Get order creation time
+            try:
+                order_time = datetime.fromisoformat(order.get("timestamp", ""))
+                time_diff = (datetime.now() - order_time).total_seconds()
+                
+                # More aggressive progression for demo purposes
+                if time_diff > 120:  # 2 minutes - move to ready
+                    if order["status"] != "ready":
+                        print(f"🔄 Order {order_id} status changed from {order['status']} to ready")
+                        order["status"] = "ready"
+                elif time_diff > 60:  # 1 minute - move to cooking
+                    if order["status"] != "cooking":
+                        print(f"🔄 Order {order_id} status changed from {order['status']} to cooking")
+                        order["status"] = "cooking"
+                elif time_diff > 30:  # 30 seconds - move to preparing
+                    if order["status"] != "preparing":
+                        print(f"🔄 Order {order_id} status changed from {order['status']} to preparing")
+                        order["status"] = "preparing"
+                    
+            except (ValueError, TypeError):
+                # If timestamp is invalid, keep current status
+                pass
 
 # Models
 class ChatRequest(BaseModel):
@@ -65,6 +97,7 @@ class OrderResponse(BaseModel):
     estimated_time: str
     total_price: float
     status: str = "placed"
+    timestamp: Optional[str] = None
 
 class UserRequest(BaseModel):
     email: str
@@ -314,7 +347,7 @@ def confirm_order(user_id: str, context: dict) -> dict:
         "name": pending_order.get("name"),
         "status": "placed",
         "total_price": total_price,
-        "timestamp": str(uuid.uuid4())
+        "timestamp": datetime.now().isoformat()
     }
     
     # Get dynamic ETA from scheduler
@@ -358,7 +391,7 @@ def check_user_email(email: str) -> dict:
 def save_user_data(email: str, name: str = None) -> dict:
     """Save user data"""
     email_lower = email.lower().strip()
-    USERS[email_lower] = {"email": email_lower, "name": name, "created_at": str(uuid.uuid4())}
+    USERS[email_lower] = {"email": email_lower, "name": name, "created_at": datetime.now().isoformat()}
     return {"success": True, "message": "User data saved successfully", "user": USERS[email_lower]}
 
 def get_user_order_history(email: str) -> dict:
@@ -412,7 +445,9 @@ async def save_user_endpoint(user_request: UserRequest):
 
 @app.get("/api/user/{email}/orders")
 async def get_user_orders_endpoint(email: str):
-    """Get user order history"""
+    """Get user order history with updated status"""
+    # Simulate status progression before returning orders
+    simulate_order_progression()
     return get_user_order_history(email)
 
 @app.get("/api/user/{email}/greeting")
@@ -597,7 +632,7 @@ async def place_order_endpoint(order_request: OrderRequest):
         "email": order_request.email,
         "status": "placed",
         "total_price": total_price,
-        "timestamp": str(uuid.uuid4())
+        "timestamp": datetime.now().isoformat()
     }
     
     eta_text = get_dynamic_eta(ORDERS[order_id])
@@ -606,7 +641,8 @@ async def place_order_endpoint(order_request: OrderRequest):
         order_id=order_id,
         estimated_time=eta_text,
         total_price=total_price,
-        status="placed"
+        status="placed",
+        timestamp=ORDERS[order_id]["timestamp"]
     )
 
 @app.get("/api/order/{order_id}")
@@ -615,13 +651,46 @@ async def get_order_status_endpoint(order_id: str):
     if order_id not in ORDERS:
         raise HTTPException(status_code=404, detail="Order not found")
     
+    # Simulate status progression
+    simulate_order_progression()
+    
     order = ORDERS[order_id]
     eta_text = get_dynamic_eta(order)
     
+    # Generate status progression data
+    status_progression = get_order_status_progression(order.get('status', 'placed'))
+    
     return {
-        "order": order,
+        "order": {
+            **order,
+            "status_progression": status_progression,
+            "eta": eta_text
+        },
         "status": order["status"],
         "estimated_time": eta_text
+    }
+
+@app.get("/api/orders/status-updates")
+async def get_orders_status_updates():
+    """Get all orders with updated status - for real-time updates"""
+    # Simulate status progression
+    simulate_order_progression()
+    
+    # Return all orders with current status
+    updated_orders = []
+    for order_id, order in ORDERS.items():
+        eta_text = get_dynamic_eta(order)
+        status_progression = get_order_status_progression(order.get('status', 'placed'))
+        
+        updated_orders.append({
+            **order,
+            "status_progression": status_progression,
+            "eta": eta_text
+        })
+    
+    return {
+        "orders": updated_orders,
+        "timestamp": datetime.now().isoformat()
     }
 
 @app.get("/api/health")
