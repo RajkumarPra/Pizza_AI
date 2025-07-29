@@ -482,6 +482,56 @@ const Index = () => {
     setCurrentView('track');
   }, []);
 
+  const handleLogout = useCallback(() => {
+    // Clear localStorage
+    localStorage.removeItem('pizza_ai_email');
+    localStorage.removeItem('pizza_ai_name');
+    
+    // Clear all state
+    setUserEmail('');
+    setUserName('');
+    setIsUserConfirmed(false);
+    setUserOrderHistory([]);
+    setOrders([]);
+    setRecentOrder(null);
+    setMessages([]);
+    setCurrentOrder([]);
+    setShowThankYou(false);
+    setCurrentView('menu');
+    
+    // Show confirmation toast
+    toast({
+      title: "Logged out successfully!",
+      description: "You can now sign in with a different account.",
+      duration: 3000,
+    });
+  }, [toast]);
+
+  const handleClearUserData = useCallback(() => {
+    // Clear localStorage
+    localStorage.removeItem('pizza_ai_email');
+    localStorage.removeItem('pizza_ai_name');
+    
+    // Clear all state
+    setUserEmail('');
+    setUserName('');
+    setIsUserConfirmed(false);
+    setUserOrderHistory([]);
+    setOrders([]);
+    setRecentOrder(null);
+    setMessages([]);
+    setCurrentOrder([]);
+    setShowThankYou(false);
+    setCurrentView('menu');
+    
+    // Show confirmation toast
+    toast({
+      title: "User data cleared!",
+      description: "You can now test with a new user.",
+      duration: 3000,
+    });
+  }, [toast]);
+
   // Show email check flow if user is not confirmed
   if (!isUserConfirmed) {
     return <EmailCheckFlow onUserConfirmed={handleUserConfirmed} />;
@@ -497,6 +547,8 @@ const Index = () => {
       />
     );
   }
+
+
 
   const renderActionPanel = () => {
     switch (currentView) {
@@ -537,11 +589,11 @@ const Index = () => {
       
       case 'track':
         return (
-                <OrderTracking
+          <OrderTracking
             orders={orders}
             userEmail={userEmail}
             userName={userName}
-                  />
+          />
         );
       
       case 'schedule':
@@ -612,22 +664,41 @@ const Index = () => {
               </div>
             </div>
             
-            {/* Navigation - Chat button removed since chat is always visible in left panel */}
-            <div className="flex gap-2">
-              <Button
-                variant={currentView === 'menu' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setCurrentView('menu')}
-              >
-                Menu
-              </Button>
-              <Button
-                variant={currentView === 'track' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setCurrentView('track')}
-              >
-                Track
-              </Button>
+            {/* Navigation and User Actions */}
+            <div className="flex items-center gap-3">
+              <div className="flex gap-2">
+                <Button
+                  variant={currentView === 'menu' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setCurrentView('menu')}
+                >
+                  Menu
+                </Button>
+                <Button
+                  variant={currentView === 'track' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setCurrentView('track')}
+                >
+                  Track
+                </Button>
+              </div>
+              
+              {/* User Info and Logout */}
+              {userName && (
+                <div className="flex items-center gap-2 ml-4 pl-4 border-l border-border/50">
+                  <span className="text-sm text-muted-foreground">
+                    Hi, <span className="font-medium text-foreground">{userName}</span>
+                  </span>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={handleLogout}
+                    className="text-muted-foreground hover:text-red-600 hover:border-red-300"
+                  >
+                    Logout
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
         </div>

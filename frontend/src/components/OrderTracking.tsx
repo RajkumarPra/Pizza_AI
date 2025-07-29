@@ -71,9 +71,19 @@ export const OrderTracking = ({ orders, userEmail, userName, onOrderSelect }: Or
     return dateB.getTime() - dateA.getTime();
   });
 
-  // Separate latest order from history
-  const latestOrder = allOrders[0];
-  const orderHistory = allOrders.slice(1);
+  // Separate active orders from completed orders
+  const activeOrders = allOrders.filter(order => {
+    const status = order.status || 'placed';
+    return ['placed', 'preparing', 'cooking'].includes(status);
+  });
+
+  const completedOrders = allOrders.filter(order => {
+    const status = order.status || 'delivered';
+    return ['ready', 'delivered'].includes(status);
+  });
+
+  // Get the most recent active order for prominent display
+  const latestActiveOrder = activeOrders[0];
 
   const getStatusIcon = (status: OrderStatus) => {
     switch (status) {
@@ -218,8 +228,8 @@ export const OrderTracking = ({ orders, userEmail, userName, onOrderSelect }: Or
     </Card>
   );
 
-  // If no orders at all, show welcome message
-  if (allOrders.length === 0 && !loading) {
+  // If no active orders and no completed orders, show welcome message
+  if (activeOrders.length === 0 && completedOrders.length === 0 && !loading) {
     return (
       <Card className="text-center py-12">
         <CardContent>
@@ -245,52 +255,87 @@ export const OrderTracking = ({ orders, userEmail, userName, onOrderSelect }: Or
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded-full bg-gradient-primary flex items-center justify-center">
-          <Truck className="h-4 w-4 text-primary-foreground" />
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-full bg-gradient-primary flex items-center justify-center">
+            <Truck className="h-4 w-4 text-primary-foreground" />
+          </div>
+          <div>
+            <h2 className="text-xl font-semibold">Order Tracking</h2>
+            <p className="text-sm text-muted-foreground">
+              {activeOrders.length > 0 
+                ? (userName ? `${userName}'s active orders` : 'Track your active pizza orders')
+                : (userName ? `${userName}'s order history` : 'Your order history')
+              }
+            </p>
+          </div>
         </div>
-        <div>
-          <h2 className="text-xl font-semibold">Order Tracking</h2>
-          <p className="text-sm text-muted-foreground">
-            {userName ? `${userName}'s orders` : 'Track your pizza orders'}
-          </p>
-        </div>
+        
+
       </div>
 
-      {/* Latest Order - Prominently Displayed */}
-      {latestOrder && (
+      {/* No Active Orders Message */}
+      {activeOrders.length === 0 && completedOrders.length > 0 && (
+        <Card className="text-center py-8">
+          <CardContent>
+            <Package className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+            <CardTitle className="mb-2">No Active Orders</CardTitle>
+            <CardDescription className="mb-4">
+              {userName ? `${userName}, you don't have any active orders right now.` : "You don't have any active orders right now."}
+            </CardDescription>
+            <p className="text-sm text-muted-foreground mb-4">
+              Check your completed orders below, or place a new order!
+            </p>
+            <Button 
+              onClick={() => window.location.hash = 'menu'}
+              className="bg-gradient-primary hover:opacity-90"
+            >
+              Place New Order
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Active Orders Section */}
+      {activeOrders.length > 0 && (
         <div className="space-y-4">
           <div className="flex items-center gap-2 mb-4">
-            <div className="flex items-center gap-2 px-3 py-1 bg-blue-100 rounded-full">
-              <Clock className="h-4 w-4 text-blue-600" />
-              <span className="text-sm font-semibold text-blue-700">Latest Order</span>
+            <div className="flex items-center gap-2 px-3 py-1 bg-green-100 rounded-full">
+              <Clock className="h-4 w-4 text-green-600" />
+              <span className="text-sm font-semibold text-green-700">
+                Active Orders ({activeOrders.length})
+              </span>
             </div>
           </div>
-          <div className="ring-2 ring-blue-200 rounded-lg">
-            <OrderCard 
-              order={{
-                ...latestOrder, 
-                id: latestOrder.order_id || latestOrder.id,
-                status: latestOrder.status || 'placed',
-                items: latestOrder.items || [],
-                total: latestOrder.total_price || latestOrder.total || 0,
-                estimatedTime: latestOrder.eta || latestOrder.estimatedTime || 25,
-                timestamp: new Date(latestOrder.timestamp || latestOrder.created_at || Date.now())
-              }} 
-              isActive={true} 
-            />
-          </div>
+          
+          {/* Show all active orders */}
+          {activeOrders.map((order, index) => (
+            <div key={order.order_id || order.id || index} className={index === 0 ? "ring-2 ring-green-200 rounded-lg" : ""}>
+              <OrderCard 
+                order={{
+                  ...order, 
+                  id: order.order_id || order.id,
+                  status: order.status || 'placed',
+                  items: order.items || [],
+                  total: order.total_price || order.total || 0,
+                  estimatedTime: order.eta || order.estimatedTime || 25,
+                  timestamp: new Date(order.timestamp || order.created_at || Date.now())
+                }} 
+                isActive={index === 0} 
+              />
+            </div>
+          ))}
         </div>
       )}
 
       {/* Order History - Collapsible */}
-      {orderHistory.length > 0 && (
+      {completedOrders.length > 0 && (
         <Collapsible open={isHistoryOpen} onOpenChange={setIsHistoryOpen}>
           <CollapsibleTrigger asChild>
             <Button variant="outline" className="w-full justify-between">
               <div className="flex items-center gap-2">
                 <History className="h-4 w-4 text-gray-500" />
-                <span>Order History ({orderHistory.length})</span>
+                <span>Completed Orders ({completedOrders.length})</span>
               </div>
               {isHistoryOpen ? (
                 <ChevronUp className="h-4 w-4" />
@@ -301,7 +346,7 @@ export const OrderTracking = ({ orders, userEmail, userName, onOrderSelect }: Or
           </CollapsibleTrigger>
           
           <CollapsibleContent className="space-y-4 mt-4">
-            {orderHistory.map((order, index) => (
+            {completedOrders.map((order, index) => (
               <div key={order.order_id || order.id || index} className="opacity-80">
                 <OrderCard 
                   order={{
