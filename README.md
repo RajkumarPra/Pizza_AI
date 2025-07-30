@@ -1,305 +1,325 @@
-# Pizza AI Project Documentation
+# 🍕 Pizza AI - Clean Architecture Implementation
 
-## Project Overview
+A modern pizza ordering system built with **Clean Architecture** principles, **Model Context Protocol (MCP)** integration, and **Groq LLM** for natural language processing.
 
-This project implements an intelligent pizza ordering system that demonstrates the transformation of traditional REST APIs into a modern AI-agent ecosystem. The system consists of three main components: an automated OpenAPI-to-MCP server generator, a pizza ordering agent, and a scheduling coordination agent. Together, these components create a seamless workflow where users can order pizzas through natural language conversation while the system handles order processing and delivery scheduling automatically.
+## 🏗️ Architecture Overview
 
-## System Architecture
+This project follows **Clean Architecture** patterns with strict dependency inversion, ensuring maintainable, testable, and framework-independent code.
 
-### Core Components
+### **Directory Structure**
+```
+Pizza_AI/
+├── src/                           # Clean Architecture Implementation
+│   ├── domain/                    # Enterprise Business Rules
+│   │   ├── entities/             # Core business entities
+│   │   │   ├── pizza.py         # Pizza entity with validation
+│   │   │   ├── order.py         # Order aggregate root
+│   │   │   └── user.py          # User entity
+│   │   ├── repositories/         # Repository interfaces (DIP)
+│   │   ├── services/             # Domain services
+│   │   └── data/                 # Domain data models
+│   ├── application/              # Application Business Rules
+│   │   ├── use_cases/           # Application use cases
+│   │   └── interfaces/          # External service contracts
+│   └── infrastructure/          # Frameworks & External Concerns
+│       ├── external/            # External service implementations
+│       ├── persistence/         # Data persistence
+│       └── web/                 # Web framework integration
+├── tests/                        # Test suite
+├── Frontend/                     # React frontend (unchanged)
+├── main.py                       # Application entry point
+└── requirements.txt              # Dependencies
+```
 
-The system is built around three primary modules that work together to create a complete pizza ordering experience:
+## 🚀 Quick Start
 
-1. MCP Server Generator - Automatically converts OpenAPI specifications into functional MCP servers
-2. Pizza Ordering Agent - Handles natural language order processing and menu interactions
-3. Scheduling Agent - Coordinates delivery timing and external calendar integrations
+### **Prerequisites**
+- Python 3.8+
+- Groq API key
 
-### Technical Stack
+### **Installation**
+```bash
+# Clone and navigate to project
+cd Pizza_AI
 
-1. Backend Framework: FastAPI for REST API implementation, Python
-2. AI Integration: Google Gemini Flash for natural language processing
-3. MCP Protocol: Model Context Protocol for agent communication
-4. Frontend: React with TypeScript for user interface
-5. Data Storage: In-memory storage with JSON-based persistence
+# Install dependencies
+pip install -r requirements.txt
 
-## Phase 1: OpenAPI to MCP Server Generation
+# Setup environment
+echo "GROQ_API_KEY=your_groq_api_key_here" > .env
+```
 
-### Implementation Details
+### **Running the System**
+```bash
+# Start both MCP server and FastAPI client
+python main.py both
 
-The MCP server generation system automatically transforms OpenAPI specifications into fully compliant MCP servers. This process involves:
+# Or run components separately:
+python main.py mcp      # MCP server only
+python main.py client   # FastAPI client only
 
-**OpenAPI Ingestion**
-The system reads OpenAPI specification files and extracts endpoint definitions, request/response schemas, and authentication requirements. This information is parsed and structured for MCP conversion.
+# Show architecture info
+python main.py info
+```
 
-**MCP Server Generation**
-Using the extracted OpenAPI data, the system generates a complete MCP server that exposes all relevant endpoints with appropriate tool definitions and structured context. The generated server includes:
+## 🎯 Clean Architecture Benefits
 
-1. Menu listing endpoints with category filtering
-2. Order placement with validation and confirmation
-3. Order tracking with real-time status updates
-4. User management and authentication
-5. Error handling and response formatting
+### **1. Dependency Inversion**
+- **Domain** layer has no external dependencies
+- **Application** layer depends only on Domain
+- **Infrastructure** implements Domain interfaces
+- **Easy to swap implementations** (Groq → OpenAI, Memory → Database)
 
-**Tool Definition Mapping**
-Each OpenAPI endpoint is mapped to corresponding MCP tools with proper parameter definitions, return types, and error handling. The system ensures that all pizza-related operations are accessible through the MCP protocol.
+### **2. Testability**
+- **Domain logic** is pure and easily unit tested
+- **Use cases** can be tested with mocked dependencies
+- **Integration tests** verify external service contracts
 
-### Generated Endpoints
+### **3. Maintainability**
+- **Business rules** are centralized in entities and domain services
+- **Clear separation** between what the system does vs. how it does it
+- **Framework independence** allows easy technology migrations
 
-The MCP server exposes the following core functionality:
+## 🍕 Domain Model
 
-1. Menu Operations: Retrieve pizza menu, filter by category, suggest similar items
-2. Order Management: Place orders, track status, retrieve order history
-3. User Services: Check user existence, save user data, generate personalized greetings
-4. Chat Interface: AI-powered conversation handling for natural language interactions
+### **Core Entities**
 
-## Phase 2: Pizza Ordering Agent
+#### **Pizza Entity**
+```python
+Pizza(
+    id="pizza_1",
+    name="Margherita", 
+    size=PizzaSize.LARGE,
+    price=8.99,
+    category=PizzaCategory.VEG,
+    description="Fresh tomato sauce, mozzarella, and basil",
+    ingredients=["tomato sauce", "mozzarella", "basil"]
+)
+```
 
-### Agent Design and Functionality
+#### **Order Aggregate**
+```python
+Order(
+    customer=CustomerInfo(...),
+    items=[OrderItem(pizza=pizza, quantity=2)],
+    status=OrderStatus.CONFIRMED,
+    estimated_delivery_time=datetime.now() + timedelta(minutes=30)
+)
+```
 
-The pizza ordering agent serves as the primary interface between users and the pizza ordering system. It connects to the generated MCP server and provides intelligent order processing capabilities.
+### **Business Rules**
+- **Pizza validation**: Price must be positive, ingredients required
+- **Order lifecycle**: Defined status transitions with business constraints
+- **Delivery time calculation**: Based on order complexity and peak hours
+- **Customer management**: Email validation and order history tracking
 
-**Natural Language Processing**
-The agent uses Google's Gemini Flash model to understand user intent and extract relevant information from natural language input. It can handle various types of requests:
+## 🤖 MCP Integration
 
-1. Direct pizza orders: "I want a large BBQ chicken pizza"
-2. Menu inquiries: "Show me vegetarian options"
-3. Order tracking: "Where is my order?"
-4. General questions: "What do you recommend?"
+### **What is MCP?**
+Model Context Protocol enables standardized communication between LLMs and external tools, providing:
+- **Type-safe tool definitions** with JSON schemas
+- **Standardized resource access** patterns
+- **LLM-agnostic design** that works with any compatible client
 
-**Order Processing Workflow**
-When a user places an order, the agent follows a structured workflow:
+### **MCP Tools Exposed**
+```python
+# Menu Operations
+get_menu(category="all|veg|non-veg")          # Get pizza menu
+find_pizza(name="margherita", size="large")   # Search specific pizza
 
-1. Intent Recognition: Determines whether the user wants to order, track, or browse
-2. Information Extraction: Extracts pizza name, size, and quantity from the request
-3. Menu Validation: Checks item availability and suggests alternatives if needed
-4. Order Confirmation: Generates confirmation messages and awaits user approval
-5. Order Placement: Submits the order through the MCP server
-6. Status Communication: Provides order details and tracking information
+# Order Operations  
+place_order(customer_info, items)             # Create new order
+track_order(order_id?, customer_email?)       # Track order status
 
-**Error Handling and Suggestions**
-The agent includes robust error handling for various scenarios:
+# User Operations
+check_user(email)                             # Verify user existence
+save_user(email, name)                        # Store user data
 
-1. Unavailable items: Suggests similar alternatives
-2. Ambiguous requests: Asks clarifying questions
-3. Invalid inputs: Provides helpful guidance
-4. System errors: Offers alternative solutions
+# Recommendations
+get_suggestions(customer_email?, preferences) # Get personalized suggestions
+```
 
-## Phase 3: Scheduling and Coordination Agent
+### **Architecture Flow**
+```
+User Message → FastAPI → Groq LLM → Intent Parsing → MCP Tool Selection → Domain Logic → Response Generation
+```
 
-### Agent-to-Agent Communication
+## 🔧 Technology Stack
 
-The scheduling agent demonstrates advanced A2A (Agent-to-Agent) communication protocols by coordinating with the ordering agent to handle delivery scheduling and external integrations.
+### **Domain Layer**
+- **Pure Python**: No external dependencies
+- **Dataclasses & Enums**: Type-safe entity definitions
+- **Business rule validation**: Built into entities
 
-**Integration with External MCP Servers**
-The scheduling agent connects to external MCP servers, such as calendar APIs, to provide enhanced functionality:
+### **Application Layer**
+- **FastAPI**: Modern web framework
+- **Pydantic**: Data validation and serialization
 
-1. Integration: Schedules delivery appointments
-2. Time Zone Handling: Manages delivery timing across different locations
-3. Availability Checking: Verifies delivery slot availability
-4. Notification Management: Sends delivery reminders and updates
+### **Infrastructure Layer**
+- **Groq**: LLM integration (Llama 3.1 7B Instant)
+- **MCP Python SDK**: Model Context Protocol implementation
+- **In-memory storage**: For development (easily replaceable)
 
-**Creative Workflow Implementation**
-Beyond basic scheduling, the agent implements creative workflows:
+## 📋 API Usage
 
-1. Dynamic ETA Calculation: Provides real-time delivery estimates based on order status
-2. Weather Integration: Adjusts delivery times based on weather conditions
-3. Traffic Analysis: Considers traffic patterns for optimal delivery timing
-4. Customer Preference Learning: Adapts scheduling based on user history
+### **Single Chat Endpoint**
+```bash
+POST http://localhost:8001/chat
+```
 
-### Coordination Protocol
-
-The agents communicate using structured protocols that ensure reliable information exchange:
-
-1. Order Handoff: Seamless transfer of order details from ordering to scheduling agent
-2. Status Updates: Real-time status progression and ETA adjustments
-3. Error Recovery: Graceful handling of communication failures
-4. Data Consistency: Ensures order information remains synchronized
-
-## Real-World Workflow Example
-
-### Complete Order Flow
-
-The system demonstrates a complete end-to-end pizza ordering workflow:
-
-**User Initiation**
-A user approaches the system with a natural language request: "I'd like to order a large Margherita pizza."
-
-**Ordering Agent Processing**
-The ordering agent processes the request:
-1. Recognizes the intent as an order request
-2. Extracts "large Margherita" as the pizza specification
-3. Validates the item against the menu
-4. Generates a confirmation message with price and details
-5. Awaits user confirmation
-
-**Order Placement**
-Upon user confirmation, the ordering agent:
-1. Places the order through the MCP server
-2. Receives order confirmation with unique order ID
-3. Passes order details to the scheduling agent
-
-**Scheduling Agent Coordination**
-The scheduling agent receives the order and:
-1. Calculates optimal delivery time based on current workload
-2. Checks external calendar for availability
-3. Schedules delivery appointment
-4. Updates order with delivery time and ETA
-
-**Status Updates**
-Both agents work together to provide continuous updates:
-1. Order status progression: placed → preparing → cooking → ready → delivered
-2. Real-time ETA adjustments based on kitchen progress
-3. Delivery notifications and reminders
-4. Final delivery confirmation
-
-## Technical Implementation Details
-
-### MCP Server Architecture
-
-The generated MCP server follows the Model Context Protocol specification:
-
-**Tool Definitions**
-Each pizza operation is defined as an MCP tool with:
-1. Clear parameter specifications
-2. Return type definitions
-3. Error handling protocols
-4. Authentication requirements
-
-### Agent Communication Protocols
-
-**A2A Message Format**
-Agents communicate using structured message formats:
+**Request:**
 ```json
 {
-  "sender": "ordering_agent",
-  "recipient": "scheduling_agent",
-  "message_type": "order_placed",
-  "payload": {
-    "order_id": "MCP-ORD-12345",
-    "items": [...],
-    "delivery_address": "...",
-    "estimated_prep_time": 30
-  }
+    "message": "I want a large pepperoni pizza",
+    "user_email": "customer@example.com", 
+    "user_name": "John",
+    "user_id": "user_123"
 }
 ```
 
-### Data Flow and State Management
+**Response:**
+```json
+{
+    "response": "🍕 Great choice! I found Pepperoni Classic (Large) for $10.49. Would you like me to place this order for you?",
+    "tools_used": ["find_pizza"],
+    "context": {
+        "intent": "find_pizza",
+        "pizza_found": {
+            "name": "Pepperoni Classic",
+            "size": "Large", 
+            "price": "$10.49"
+        }
+    }
+}
+```
 
-**Order State Progression**
-Orders follow a defined state machine:
-1. Placed: Initial order creation
-2. Preparing: Kitchen preparation begins
-3. Cooking: Pizza in the oven
-4. Ready: Order ready for delivery
-5. Delivered: Order completed
+### **Example Interactions**
 
-**Real-time Updates**
-The system provides real-time status updates through:
-1. WebSocket connections for live updates
-2. Polling mechanisms for status checks
-3. Push notifications for important events
+#### **Menu Browsing**
+```bash
+curl -X POST http://localhost:8001/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Show me vegetarian options"}'
+```
 
-## Setup and Installation
+#### **Order Placement**
+```bash
+curl -X POST http://localhost:8001/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "I want 2 large margherita pizzas",
+    "user_email": "john@example.com",
+    "user_name": "John"
+  }'
+```
 
-### Prerequisites
+#### **Order Tracking**
+```bash
+curl -X POST http://localhost:8001/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Where is my order?",
+    "user_email": "john@example.com"
+  }'
+```
 
-1. Python 3.8 or higher
-2. Node.js 16 or higher
-3. Google Gemini API key
-4. Internet connection for external MCP server access
+## 🧪 Testing
 
-### Installation Steps
+### **Running Tests**
+```bash
+# Unit tests (domain entities and services)
+python -m pytest tests/unit/
 
-1. Clone the Repository
-   ```bash
-   git clone <repository-url>
-   cd pizza-ai-project
-   ```
+# Integration tests (MCP communication, LLM integration)  
+python -m pytest tests/integration/
 
-2. Backend Setup
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # Windows: venv\Scripts\activate
-   pip install -r requirements.txt
-   ```
+# End-to-end tests (complete order flows)
+python -m pytest tests/e2e/
 
-3. Configuration
-   1. Add your Gemini API key to utils/config.py
-   2. Configure external MCP server connections
-   3. Set up delivery scheduling parameters
+# All tests
+python -m pytest
+```
 
-4. Start the System
-   ```bash
-   # Start MCP server
-   cd mcp
-   python mcp_server_from_spec.py
-   
-   # Start frontend (in new terminal)
-   cd frontend
-   npm install
-   npm run dev
-   ```
+### **Test Coverage**
+- **Domain Entities**: Business rule validation
+- **Domain Services**: Complex business logic
+- **Use Cases**: Application workflow orchestration
+- **MCP Integration**: Tool calling and response handling
+- **LLM Service**: Intent parsing and response generation
 
-### Configuration Options
+## 🚀 Deployment
 
-**API Keys and External Services**
-1. Google Gemini API configuration
-2. External calendar API credentials
-3. Weather service API keys
-4. Traffic data service configuration
+### **Local Development**
+```bash
+python main.py both
+```
+- **FastAPI**: http://localhost:8001
+- **MCP Server**: stdio communication
 
-**System Parameters**
-1. Delivery time calculations
-2. Order status progression timing
-3. Error retry mechanisms
-4. Logging and monitoring settings
+### **Production Setup**
+```bash
+# Environment variables
+export GROQ_API_KEY="your_api_key"
+export ENVIRONMENT="production"
 
-## Testing and Validation
+# Start with process manager
+python main.py both
+```
 
-### Functional Testing
+## 📈 Monitoring & Logging
 
-**Order Flow Testing**
-1. Complete order placement workflow
-2. Menu browsing and filtering
-3. Order tracking and status updates
-4. Error handling and recovery
+### **Health Checks**
+- **FastAPI Health**: `GET /health`
+- **MCP Server Health**: Built-in MCP diagnostics
 
-**Agent Communication Testing**
-1. A2A message exchange validation
-2. External MCP server integration
-3. Scheduling coordination testing
-4. Error scenario handling
+### **Logging**
+- **Domain Events**: Order lifecycle changes
+- **LLM Interactions**: Intent parsing and response generation
+- **Error Tracking**: Graceful fallbacks and error recovery
 
-### Technical Roadmap
+## 🛣️ Roadmap
 
-**Short-term Goals**
-1. Payment gateway integration
-2. Real-time delivery tracking
-3. Customer feedback system
-4. Performance optimization
+### **Phase 1: Enhanced Persistence**
+- [ ] Database repository implementations
+- [ ] User session management
+- [ ] Order history persistence
 
-## Conclusion
+### **Phase 2: Advanced Features**
+- [ ] Payment processing integration
+- [ ] Real-time order status notifications
+- [ ] Advanced recommendation algorithms
 
-This Pizza AI project successfully demonstrates the transformation of traditional REST APIs into a modern AI-agent ecosystem. The automated MCP server generation, intelligent ordering agent, and coordinating scheduling agent work together to create a seamless pizza ordering experience.
+### **Phase 3: Scalability**
+- [ ] Microservices architecture
+- [ ] Distributed MCP server deployment
+- [ ] Multi-tenant support
 
-The system showcases several key achievements:
+## 🤝 Contributing
 
-**Technical Innovation**
-1. Automated OpenAPI-to-MCP transformation
-2. Robust agent-to-agent communication
-3. Intelligent natural language processing
-4. Real-time order tracking and scheduling
+### **Development Guidelines**
+1. **Follow Clean Architecture**: Keep dependencies pointing inward
+2. **Write Tests**: Unit tests for domain logic, integration tests for external services
+3. **Domain-First**: New features start with domain entities and business rules
+4. **Interface Segregation**: Keep interfaces focused and minimal
 
-**User Experience**
-1. Natural conversation-based ordering
-2. Personalized interactions and recommendations
-3. Real-time status updates and notifications
-4. Seamless integration with external services
+### **Adding New Features**
+1. **Define Domain Entity**: Add business rules and validation
+2. **Create Repository Interface**: Abstract data access contract
+3. **Implement Use Case**: Orchestrate domain logic
+4. **Add Infrastructure**: External service implementations
+5. **Expose via MCP**: Define tools and integrate with existing flow
 
-**Scalability and Maintainability**
-1. Modular architecture for easy extension
-2. Clear separation of concerns
-3. Comprehensive error handling
-4. Well-documented codebase
+## 📚 Learn More
 
-The project serves as a foundation for future development in AI-powered food ordering systems and demonstrates the potential for intelligent agent-based workflows in e-commerce applications. 
+- **Clean Architecture**: [Architecture documentation](ARCHITECTURE.md)
+- **Model Context Protocol**: [MCP Specification](https://modelcontextprotocol.io/)
+- **Groq API**: [Documentation](https://docs.groq.com/)
+- **FastAPI**: [Official docs](https://fastapi.tiangolo.com/)
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+**Built with Clean Architecture principles for maintainable, testable, and scalable pizza ordering! 🍕** 
