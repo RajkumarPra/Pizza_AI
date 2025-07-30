@@ -1,33 +1,339 @@
 #!/usr/bin/env python3
 """
-Pizza AI FastAPI Client
-Single endpoint that integrates Groq LLM with MCP Server tools
+Pizza AI FastAPI Client - MCP Host with Groq LLM
+Acts as MCP client/host that communicates with pizza_mcp_server.py
 """
 
-import asyncio
-import json
 import os
-import subprocess
 import sys
+import asyncio
+import subprocess
 from typing import Dict, Any, Optional, List
-from datetime import datetime
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-import uvicorn
 
-# MCP Client imports
+# MCP client imports
+from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-from mcp.types import CallToolRequest, ListToolsRequest, ReadResourceRequest, ListResourcesRequest
 
 # Groq integration
 from utils.groq_integration import groq_chat
 
-# FastAPI setup
-app = FastAPI(title="Pizza AI", description="AI-powered pizza ordering with MCP integration")
+# Pydantic models for API
+class ChatRequest(BaseModel):
+    message: str
+    user_email: Optional[str] = None
+    user_name: Optional[str] = None
+    user_id: Optional[str] = "default"
 
+class ChatResponse(BaseModel):
+    response: str
+    tools_used: List[str] = []
+    context: Dict[str, Any] = {}
+
+class MCPClientManager:
+    """Manages connection to MCP server via stdio"""
+    
+    def __init__(self):
+        self.session: Optional[ClientSession] = None
+        self.server_process: Optional[subprocess.Popen] = None
+        self.available_tools: List[Dict[str, Any]] = []
+        
+    async def start_and_connect(self):
+        """Start MCP server and establish connection"""
+        try:
+            # Set up server parameters for stdio connection
+            server_params = StdioServerParameters(
+                command="python",
+                args=["pizza_mcp_server.py"],
+                env=None
+            )
+            
+            print("🔄 Starting MCP server and establishing connection...")
+            
+            # Create stdio client connection
+            self.stdio_transport = await stdio_client(server_params).__aenter__()
+            read_stream, write_stream = self.stdio_transport
+            
+            # Create client session
+            self.session = ClientSession(read_stream, write_stream)
+            await self.session.__aenter__()
+            
+            # Initialize the connection
+            await self.session.initialize()
+            print("✅ Connected to MCP server")
+            
+            # List available tools
+            tools_response = await self.session.list_tools()
+            self.available_tools = [
+                {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "input_schema": tool.inputSchema
+                } 
+                for tool in tools_response.tools
+            ]
+            
+            print(f"📡 Available tools: {[tool['name'] for tool in self.available_tools]}")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Failed to connect to MCP server: {e}")
+            await self.cleanup()
+            return False
+    
+    async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """Call a tool on the MCP server"""
+        if not self.session:
+            raise RuntimeError("MCP client not connected")
+        
+        try:
+            result = await self.session.call_tool(tool_name, arguments)
+            return {
+                "success": True,
+                "content": result.content[0].text if result.content else "No content",
+                "tool_name": tool_name
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "tool_name": tool_name
+            }
+    
+    # Convenience methods for each MCP tool
+    async def get_menu(self, category: str = "all") -> Dict[str, Any]:
+        return await self.call_tool("get_menu", {"category": category})
+    
+    async def find_pizza(self, name: str, size: str = "large") -> Dict[str, Any]:
+        return await self.call_tool("find_pizza", {"name": name, "size": size})
+    
+    async def place_order(self, customer_name: str, customer_email: str, 
+                         customer_phone: str, customer_address: str,
+                         items: List[str]) -> Dict[str, Any]:
+        return await self.call_tool("place_order", {
+            "customer_name": customer_name,
+            "customer_email": customer_email,
+            "customer_phone": customer_phone,
+            "customer_address": customer_address,
+            "items": items
+        })
+    
+    async def track_order(self, order_id: Optional[str] = None, 
+                         customer_email: Optional[str] = None) -> Dict[str, Any]:
+        return await self.call_tool("track_order", {
+            "order_id": order_id,
+            "customer_email": customer_email
+        })
+    
+    async def check_user(self, email: str) -> Dict[str, Any]:
+        return await self.call_tool("check_user", {"email": email})
+    
+    async def save_user(self, email: str, name: str) -> Dict[str, Any]:
+        return await self.call_tool("save_user", {"email": email, "name": name})
+    
+    async def get_suggestions(self, preferences: str = "popular") -> Dict[str, Any]:
+        return await self.call_tool("get_suggestions", {"preferences": preferences})
+    
+    async def cleanup(self):
+        """Clean up MCP session and server process"""
+        try:
+            if self.session:
+                await self.session.__aexit__(None, None, None)
+            if hasattr(self, 'stdio_transport'):
+                await self.stdio_transport.__aexit__(None, None, None)
+            print("🧹 Cleaned up MCP client connection")
+        except Exception as e:
+            print(f"⚠️  Error during cleanup: {e}")
+
+class PizzaAIAgent:
+    """AI agent that processes user messages and calls appropriate MCP tools"""
+    
+    def __init__(self, mcp_manager: MCPClientManager):
+        self.mcp_manager = mcp_manager
+    
+    async def process_message(self, message: str, user_email: Optional[str] = None, 
+                            user_name: Optional[str] = None) -> Dict[str, Any]:
+        """Process user message and execute appropriate actions"""
+        
+        # Use Groq to analyze intent and extract parameters
+        intent_prompt = f"""
+        Analyze this user message for pizza ordering intent: "{message}"
+        
+        Available actions:
+        - get_menu: Show pizza menu (category: all/veg/non-veg)
+        - find_pizza: Search for specific pizza (name, size)
+        - place_order: Place an order (needs customer info and items)
+        - track_order: Track existing order (order_id or email)
+        - check_user: Check if user exists (email)
+        - save_user: Save user information (email, name)
+        - get_suggestions: Get pizza recommendations
+        - general_chat: For greetings and general conversation
+        
+        Return JSON with:
+        {{
+            "intent": "action_name",
+            "parameters": {{"param1": "value1", "param2": "value2"}},
+            "requires_user_info": true/false,
+            "explanation": "brief explanation"
+        }}
+        """
+        
+        try:
+            intent_analysis = groq_chat._generate_response(intent_prompt)
+            
+            # Extract JSON from response
+            import json
+            import re
+            
+            json_match = re.search(r'\{.*\}', intent_analysis, re.DOTALL)
+            if json_match:
+                intent_data = json.loads(json_match.group())
+            else:
+                intent_data = self._fallback_intent_detection(message)
+                
+        except Exception as e:
+            print(f"⚠️  Intent analysis failed: {e}")
+            intent_data = self._fallback_intent_detection(message)
+        
+        # Execute the appropriate action based on intent
+        tools_used = []
+        context = {
+            "intent": intent_data.get("intent", "unknown"),
+            "user_email": user_email,
+            "user_name": user_name
+        }
+        
+        try:
+            if intent_data["intent"] == "get_menu":
+                category = intent_data.get("parameters", {}).get("category", "all")
+                result = await self.mcp_manager.get_menu(category)
+                tools_used.append("get_menu")
+                response = await self._generate_natural_response(intent_data["intent"], result, user_name)
+                
+            elif intent_data["intent"] == "find_pizza":
+                params = intent_data.get("parameters", {})
+                name = params.get("name", "")
+                size = params.get("size", "large")
+                
+                result = await self.mcp_manager.find_pizza(name, size)
+                tools_used.append("find_pizza")
+                response = await self._generate_natural_response(intent_data["intent"], result, user_name)
+                
+            elif intent_data["intent"] == "track_order":
+                params = intent_data.get("parameters", {})
+                order_id = params.get("order_id")
+                
+                result = await self.mcp_manager.track_order(order_id, user_email)
+                tools_used.append("track_order")
+                response = await self._generate_natural_response(intent_data["intent"], result, user_name)
+                
+            elif intent_data["intent"] == "get_suggestions":
+                preferences = intent_data.get("parameters", {}).get("preferences", "popular")
+                result = await self.mcp_manager.get_suggestions(preferences)
+                tools_used.append("get_suggestions")
+                response = await self._generate_natural_response(intent_data["intent"], result, user_name)
+                
+            elif intent_data["intent"] == "check_user" and user_email:
+                result = await self.mcp_manager.check_user(user_email)
+                tools_used.append("check_user")
+                response = await self._generate_natural_response(intent_data["intent"], result, user_name)
+                
+            else:
+                # General conversation or unsupported action
+                response = await self._generate_natural_response("general_chat", 
+                                                               {"message": message}, user_name)
+        
+        except Exception as e:
+            print(f"❌ Error executing action: {e}")
+            response = f"I apologize, but I encountered an error while processing your request. Please try again."
+        
+        return {
+            "response": response,
+            "tools_used": tools_used,
+            "context": context
+        }
+    
+    def _fallback_intent_detection(self, message: str) -> Dict[str, Any]:
+        """Simple fallback intent detection"""
+        message_lower = message.lower()
+        
+        if any(word in message_lower for word in ["menu", "show", "list", "what do you have"]):
+            return {"intent": "get_menu", "parameters": {"category": "all"}}
+        elif any(word in message_lower for word in ["track", "order", "status", "where is"]):
+            return {"intent": "track_order", "parameters": {}}
+        elif any(word in message_lower for word in ["suggest", "recommend", "popular", "best"]):
+            return {"intent": "get_suggestions", "parameters": {"preferences": "popular"}}
+        elif any(word in message_lower for word in ["pizza", "want", "order", "buy"]):
+            return {"intent": "find_pizza", "parameters": {"name": "margherita", "size": "large"}}
+        else:
+            return {"intent": "general_chat", "parameters": {}}
+    
+    async def _generate_natural_response(self, intent: str, tool_result: Dict[str, Any], 
+                                       user_name: Optional[str] = None) -> str:
+        """Generate natural language response based on intent and tool results"""
+        
+        name_prefix = f"{user_name}, " if user_name else ""
+        
+        if intent == "get_menu":
+            if tool_result.get("success"):
+                return f"🍕 {name_prefix}Here's our delicious pizza menu! What catches your eye?"
+            else:
+                return f"Sorry {name_prefix}I'm having trouble accessing our menu right now. Please try again!"
+        
+        elif intent == "find_pizza":
+            if tool_result.get("success") and "found" in tool_result.get("content", "").lower():
+                return f"Great choice{', ' + user_name if user_name else ''}! I found that pizza for you. Would you like to place an order?"
+            else:
+                return f"I couldn't find that exact pizza{', ' + user_name if user_name else ''}. Let me show you our full menu instead!"
+        
+        elif intent == "track_order":
+            if tool_result.get("success"):
+                return f"{name_prefix}Here's your order status! Your pizza is on its way! 🚚"
+            else:
+                return f"I couldn't find any orders{', ' + user_name if user_name else ''}. Could you double-check your order number?"
+        
+        elif intent == "get_suggestions":
+            if tool_result.get("success"):
+                return f"🌟 {name_prefix}Based on what's popular, here are my top recommendations for you!"
+            else:
+                return f"Let me suggest our classic Margherita pizza{', ' + user_name if user_name else ''} - it's always a crowd favorite!"
+        
+        else:
+            return f"Hello{', ' + user_name if user_name else ''}! I'm here to help you with pizza orders. You can ask me about our menu, place orders, or track existing orders. What can I do for you today? 🍕"
+
+# Global instances
+mcp_manager = MCPClientManager()
+ai_agent = PizzaAIAgent(mcp_manager)
+
+# Lifespan management
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    print("🚀 Starting Pizza AI FastAPI Client...")
+    success = await mcp_manager.start_and_connect()
+    if not success:
+        print("❌ Failed to start MCP server connection")
+        # Continue anyway for basic functionality
+    
+    yield
+    
+    # Shutdown
+    print("🛑 Shutting down Pizza AI FastAPI Client...")
+    await mcp_manager.cleanup()
+
+# FastAPI app
+app = FastAPI(
+    title="Pizza AI - MCP Client",
+    description="FastAPI client that integrates Groq LLM with MCP pizza tools",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -36,371 +342,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Serve frontend if it exists
-if os.path.exists("Frontend"):
-    app.mount("/", StaticFiles(directory="Frontend", html=True), name="frontend")
-
-# Request/Response Models
-class ChatRequest(BaseModel):
-    message: str
-    user_email: Optional[str] = None
-    user_name: Optional[str] = None
-    user_id: str = "default"
-
-class ChatResponse(BaseModel):
-    response: str
-    tools_used: List[str] = []
-    context: Optional[Dict[str, Any]] = None
-
-# MCP Client Manager
-class MCPClientManager:
-    def __init__(self):
-        self.mcp_process = None
-        self.client = None
-        self.available_tools = []
-    
-    async def start_mcp_server(self):
-        """Start the MCP server process"""
-        try:
-            self.mcp_process = await asyncio.create_subprocess_exec(
-                sys.executable, "pizza_mcp_server.py",
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            print("🔧 MCP Server started")
-            return True
-        except Exception as e:
-            print(f"❌ Failed to start MCP server: {e}")
-            return False
-    
-    async def connect_client(self):
-        """Connect to the MCP server"""
-        try:
-            if not self.mcp_process:
-                await self.start_mcp_server()
-            
-            # Create stdio client
-            self.client = stdio_client(self.mcp_process.stdin, self.mcp_process.stdout)
-            
-            # Initialize connection
-            await self.client.__aenter__()
-            
-            # List available tools
-            tools_result = await self.client.call(ListToolsRequest())
-            self.available_tools = [tool.name for tool in tools_result.tools]
-            
-            print(f"🛠️  Connected to MCP server. Available tools: {self.available_tools}")
-            return True
-            
-        except Exception as e:
-            print(f"❌ Failed to connect to MCP server: {e}")
-            return False
-    
-    async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        """Call a tool on the MCP server"""
-        try:
-            if not self.client:
-                await self.connect_client()
-            
-            result = await self.client.call(
-                CallToolRequest(name=tool_name, arguments=arguments)
-            )
-            
-            # Extract text content from result
-            if result.content and len(result.content) > 0:
-                content = result.content[0]
-                if hasattr(content, 'text'):
-                    return json.loads(content.text)
-            
-            return {"error": "No content returned from tool"}
-            
-        except Exception as e:
-            print(f"❌ Error calling tool {tool_name}: {e}")
-            return {"error": str(e)}
-    
-    async def get_menu(self, category: str = "all") -> Dict[str, Any]:
-        """Get pizza menu"""
-        return await self.call_tool("get_menu", {"category": category})
-    
-    async def find_pizza(self, name: str, size: str = "") -> Dict[str, Any]:
-        """Find a specific pizza"""
-        return await self.call_tool("find_pizza", {"name": name, "size": size})
-    
-    async def place_order(self, pizza_name: str, size: str, customer_email: str, 
-                         customer_name: str = "", address: str = "123 Main Street", 
-                         phone: str = "555-0123") -> Dict[str, Any]:
-        """Place a pizza order"""
-        return await self.call_tool("place_order", {
-            "pizza_name": pizza_name,
-            "size": size,
-            "customer_email": customer_email,
-            "customer_name": customer_name,
-            "address": address,
-            "phone": phone
-        })
-    
-    async def track_order(self, order_id: str = "", customer_email: str = "") -> Dict[str, Any]:
-        """Track an order"""
-        return await self.call_tool("track_order", {
-            "order_id": order_id,
-            "customer_email": customer_email
-        })
-    
-    async def check_user(self, email: str) -> Dict[str, Any]:
-        """Check if user exists"""
-        return await self.call_tool("check_user", {"email": email})
-    
-    async def save_user(self, email: str, name: str) -> Dict[str, Any]:
-        """Save user information"""
-        return await self.call_tool("save_user", {"email": email, "name": name})
-    
-    async def get_suggestions(self, preference: str) -> Dict[str, Any]:
-        """Get pizza suggestions"""
-        return await self.call_tool("get_suggestions", {"preference": preference})
-    
-    async def cleanup(self):
-        """Clean up MCP client and server"""
-        try:
-            if self.client:
-                await self.client.__aexit__(None, None, None)
-            if self.mcp_process:
-                self.mcp_process.terminate()
-                await self.mcp_process.wait()
-        except Exception as e:
-            print(f"⚠️ Error during cleanup: {e}")
-
-# Global MCP client manager
-mcp_manager = MCPClientManager()
-
-class PizzaAIAgent:
-    """AI Agent that uses Groq LLM with MCP tools"""
-    
-    def __init__(self, mcp_manager: MCPClientManager):
-        self.mcp_manager = mcp_manager
-        self.groq_client = groq_chat
-    
-    async def process_message(self, message: str, user_email: str = None, user_name: str = None) -> Dict[str, Any]:
-        """Process user message and determine which tools to use"""
-        
-        # First, analyze intent using Groq
-        intent_prompt = f"""
-        Analyze this pizza ordering message and determine the user's intent.
-        
-        Message: "{message}"
-        
-        Respond with a JSON object containing:
-        - "intent": one of [order, track, menu, greeting, recommendation, user_check]
-        - "action": specific action to take
-        - "parameters": any parameters extracted from the message
-        
-        Examples:
-        - "I want a pepperoni pizza" → {{"intent": "order", "action": "find_pizza", "parameters": {{"name": "pepperoni"}}}}
-        - "Show me the menu" → {{"intent": "menu", "action": "get_menu", "parameters": {{}}}}
-        - "Track my order" → {{"intent": "track", "action": "track_order", "parameters": {{}}}}
-        
-        JSON only:
-        """
-        
-        try:
-            intent_response = self.groq_client._generate_response(intent_prompt, max_tokens=200)
-            
-            # Extract JSON from response
-            import re
-            json_match = re.search(r'\{.*\}', intent_response, re.DOTALL)
-            if json_match:
-                intent_data = json.loads(json_match.group())
-            else:
-                # Fallback intent detection
-                intent_data = self._fallback_intent_detection(message)
-        except:
-            intent_data = self._fallback_intent_detection(message)
-        
-        # Execute the appropriate action
-        tools_used = []
-        result_data = {}
-        
-        intent = intent_data.get("intent")
-        action = intent_data.get("action")
-        parameters = intent_data.get("parameters", {})
-        
-        if intent == "menu":
-            category = parameters.get("category", "all")
-            result = await self.mcp_manager.get_menu(category)
-            tools_used.append("get_menu")
-            result_data = result
-        
-        elif intent == "order":
-            if action == "find_pizza":
-                pizza_name = parameters.get("name", "")
-                size = parameters.get("size", "")
-                
-                if pizza_name:
-                    result = await self.mcp_manager.find_pizza(pizza_name, size)
-                    tools_used.append("find_pizza")
-                    result_data = result
-                    
-                    if result.get("found"):
-                        # Ask for confirmation
-                        pizza = result["pizza"]
-                        confirmation_msg = f"Great! I found {pizza['name']} ({pizza['size']}) for ${pizza['price']:.2f}. "
-                        if user_email:
-                            confirmation_msg += "Would you like me to place this order for you?"
-                        else:
-                            confirmation_msg += "Please provide your email address to place the order."
-                        
-                        return {
-                            "response": confirmation_msg,
-                            "tools_used": tools_used,
-                            "context": {
-                                "pending_order": pizza,
-                                "user_email": user_email,
-                                "user_name": user_name
-                            }
-                        }
-            
-            elif action == "place_order":
-                # Extract order details
-                pizza_name = parameters.get("pizza_name", "")
-                size = parameters.get("size", "")
-                
-                if not pizza_name or not size or not user_email:
-                    return {
-                        "response": "To place an order, I need the pizza name, size, and your email address. Please provide these details.",
-                        "tools_used": [],
-                        "context": {}
-                    }
-                
-                result = await self.mcp_manager.place_order(
-                    pizza_name=pizza_name,
-                    size=size,
-                    customer_email=user_email,
-                    customer_name=user_name or ""
-                )
-                tools_used.append("place_order")
-                result_data = result
-        
-        elif intent == "track":
-            if user_email:
-                result = await self.mcp_manager.track_order(customer_email=user_email)
-            else:
-                order_id = parameters.get("order_id", "")
-                result = await self.mcp_manager.track_order(order_id=order_id)
-            
-            tools_used.append("track_order")
-            result_data = result
-        
-        elif intent == "recommendation":
-            preference = parameters.get("preference", "popular")
-            result = await self.mcp_manager.get_suggestions(preference)
-            tools_used.append("get_suggestions")
-            result_data = result
-        
-        elif intent == "user_check" and user_email:
-            result = await self.mcp_manager.check_user(user_email)
-            tools_used.append("check_user")
-            result_data = result
-        
-        # Generate natural language response using Groq
-        response_text = await self._generate_natural_response(message, intent_data, result_data, user_name)
-        
-        return {
-            "response": response_text,
-            "tools_used": tools_used,
-            "context": {
-                "intent": intent,
-                "tool_results": result_data,
-                "user_email": user_email,
-                "user_name": user_name
-            }
-        }
-    
-    def _fallback_intent_detection(self, message: str) -> Dict[str, Any]:
-        """Fallback intent detection if Groq fails"""
-        message_lower = message.lower()
-        
-        if any(word in message_lower for word in ["menu", "options", "available", "show"]):
-            return {"intent": "menu", "action": "get_menu", "parameters": {}}
-        elif any(word in message_lower for word in ["order", "want", "get", "pizza"]):
-            return {"intent": "order", "action": "find_pizza", "parameters": {"name": "margherita"}}
-        elif any(word in message_lower for word in ["track", "status", "where"]):
-            return {"intent": "track", "action": "track_order", "parameters": {}}
-        elif any(word in message_lower for word in ["recommend", "suggest", "popular"]):
-            return {"intent": "recommendation", "action": "get_suggestions", "parameters": {"preference": "popular"}}
-        else:
-            return {"intent": "greeting", "action": "none", "parameters": {}}
-    
-    async def _generate_natural_response(self, original_message: str, intent_data: Dict, 
-                                       tool_result: Dict, user_name: str = None) -> str:
-        """Generate a natural language response using Groq"""
-        
-        name_part = f" {user_name}" if user_name else ""
-        
-        if intent_data.get("intent") == "menu":
-            if tool_result.get("items"):
-                items = tool_result["items"]
-                items_text = ", ".join([f"{item['name']} ({item['size']}) - ${item['price']}" for item in items[:5]])
-                return f"Here's our menu{name_part}! {items_text}. What sounds good to you? 🍕"
-            else:
-                return f"I'm having trouble getting the menu right now{name_part}. Please try again!"
-        
-        elif intent_data.get("intent") == "order":
-            if tool_result.get("success"):
-                order = tool_result["order"]
-                return f"🎉 Great{name_part}! Your order has been placed successfully!\n\n📋 Order ID: {order['order_id']}\n🍕 Items: {order['items'][0]['name']} ({order['items'][0]['size']})\n💰 Total: ${order['total_price']:.2f}\n⏰ ETA: {order['eta']}\n\nThank you for choosing Pizza Planet! 🚀"
-            elif not tool_result.get("found"):
-                suggestions = tool_result.get("suggestions", [])
-                if suggestions:
-                    items_text = ", ".join([item["name"] for item in suggestions[:3]])
-                    return f"I couldn't find that exact pizza{name_part}. Here are some similar options: {items_text}. Which one would you like?"
-                else:
-                    return f"I couldn't find that pizza{name_part}. Would you like to see our full menu?"
-        
-        elif intent_data.get("intent") == "track":
-            if tool_result.get("found"):
-                order = tool_result["order"]
-                return f"📋 Here's your order status{name_part}:\n\n🆔 Order: {order['order_id']}\n📊 Status: {order['status'].title()}\n🍕 Items: {order['items'][0]['name']} ({order['items'][0]['size']})\n⏰ ETA: {order.get('eta', 'Calculating...')}"
-            else:
-                return f"I couldn't find any orders{name_part}. Would you like to place a new order?"
-        
-        elif intent_data.get("intent") == "recommendation":
-            if tool_result.get("suggestions"):
-                suggestions = tool_result["suggestions"]
-                items_text = ", ".join([f"{item['name']} (${item['price']})" for item in suggestions])
-                return f"{tool_result.get('message', 'Here are my recommendations')}{name_part}: {items_text}. Which one catches your eye? 🍕"
-        
-        # Default response
-        return f"Hi{name_part}! I'm here to help you order delicious pizzas. You can ask me to show the menu, place an order, or track existing orders. What would you like to do? 🍕"
-
-# Global AI agent
-ai_agent = None
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize MCP connection on startup"""
-    global ai_agent
-    
-    print("🚀 Starting Pizza AI...")
-    success = await mcp_manager.connect_client()
-    if success:
-        ai_agent = PizzaAIAgent(mcp_manager)
-        print("✅ Pizza AI ready!")
-    else:
-        print("❌ Failed to initialize MCP connection")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Clean up on shutdown"""
-    await mcp_manager.cleanup()
-
-# Main endpoint
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
-    """Single chat endpoint that processes messages with MCP tools"""
-    
-    if not ai_agent:
-        raise HTTPException(status_code=500, detail="AI agent not initialized")
-    
+    """Main chat endpoint - single point of interaction"""
     try:
         result = await ai_agent.process_message(
             message=request.message,
@@ -415,37 +359,40 @@ async def chat_endpoint(request: ChatRequest):
         )
         
     except Exception as e:
-        print(f"❌ Error processing message: {e}")
-        raise HTTPException(status_code=500, detail=f"Error processing message: {str(e)}")
+        print(f"❌ Chat endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-# Health check
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
+    mcp_status = "connected" if mcp_manager.session else "disconnected"
+    available_tools = [tool["name"] for tool in mcp_manager.available_tools]
+    
     return {
         "status": "healthy",
-        "message": "Pizza AI is running",
-        "mcp_connected": ai_agent is not None,
-        "architecture": "FastAPI + MCP + Groq"
+        "mcp_server": mcp_status,
+        "available_tools": available_tools,
+        "groq_integration": True
     }
 
-# Root endpoint
 @app.get("/")
 async def root():
-    """Root endpoint"""
+    """Root endpoint with API information"""
     return {
-        "message": "🍕 Pizza AI - Powered by MCP and Groq",
-        "endpoint": "/chat",
-        "example": {
-            "message": "I want a pepperoni pizza",
-            "user_email": "user@example.com",
-            "user_name": "John"
-        }
+        "message": "Pizza AI - MCP Client API",
+        "description": "FastAPI client integrating Groq LLM with MCP pizza server",
+        "endpoints": {
+            "chat": "POST /chat - Main interaction endpoint",
+            "health": "GET /health - Health check and status"
+        },
+        "mcp_tools": [tool["name"] for tool in mcp_manager.available_tools],
+        "version": "1.0.0"
     }
 
 if __name__ == "__main__":
-    print("🍕 Starting Pizza AI FastAPI Server...")
-    print("🔗 Architecture: FastAPI + MCP Server + Groq LLM")
+    import uvicorn
+    print("🍕 Starting Pizza AI FastAPI Client...")
+    print("🌐 API will be available at: http://localhost:8001")
     print("📡 Single endpoint: POST /chat")
-    print("🌐 Port: 8001")
+    print("🧠 Powered by: Groq LLM + MCP Protocol")
     uvicorn.run(app, host="0.0.0.0", port=8001) 

@@ -21,7 +21,7 @@ from mcp.types import (
     Tool, 
     TextContent, 
     CallToolResult,
-    GetResourceResult,
+    ReadResourceResult,
     ListResourcesResult,
     ListToolsResult
 )
@@ -67,10 +67,10 @@ async def list_resources() -> ListResourcesResult:
     )
 
 @server.read_resource()
-async def read_resource(uri: str) -> GetResourceResult:
+async def read_resource(uri: str) -> ReadResourceResult:
     """Read resource content"""
     if uri == "memory://menu":
-        return GetResourceResult(
+        return ReadResourceResult(
             contents=[
                 TextContent(
                     type="text",
@@ -83,7 +83,7 @@ async def read_resource(uri: str) -> GetResourceResult:
             ]
         )
     elif uri == "memory://orders":
-        return GetResourceResult(
+        return ReadResourceResult(
             contents=[
                 TextContent(
                     type="text", 

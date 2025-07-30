@@ -20,7 +20,7 @@ class GroqChat:
             raise ValueError("GROQ_API_KEY not found in environment variables")
         
         self.client = Groq(api_key=self.api_key)
-        self.model = "llama-3.1-7b-instant"  # Using Llama 7B model
+        self.model = "llama-3.1-8b-instant"  # Using Llama 7B model
     
     def _generate_response(self, prompt: str, max_tokens: int = 500) -> str:
         """Generate response using Groq API"""
