@@ -1,5 +1,7 @@
 fastapi
 uvicorn
-requests
-pyyaml
-google-generativeai
+groq
+python-dotenv
+httpx
+mcp
+anyio
